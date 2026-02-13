@@ -1,12 +1,9 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import fitz
-import spacy
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 import re
 
-print("🚀 ADVANCED RESUME ANALYZER LOADED")
+print("ADVANCED RESUME ANALYZER LOADED")
 
 # ---------------- APP INIT ----------------
 app = FastAPI(title="Advanced AI Resume Analyzer")
@@ -19,9 +16,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- LOAD MODELS ----------------
-nlp = spacy.load("en_core_web_sm")
-model = SentenceTransformer("all-MiniLM-L6-v2")
+# ---------------- OPTIONAL MODEL LOAD ----------------
+try:
+    from sentence_transformers import SentenceTransformer
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+except Exception:
+    model = None
 
 # ---------------- JOB ROLE SKILLS ----------------
 JOB_ROLE_SKILLS = {
@@ -108,9 +108,29 @@ def resume_section_score(text):
 
 # ---------------- SEMANTIC MATCH ----------------
 def semantic_similarity(text1, text2):
-    emb1 = model.encode([text1])
-    emb2 = model.encode([text2])
-    return float(cosine_similarity(emb1, emb2)[0][0] * 100)
+    if model is not None:
+        try:
+            emb1 = model.encode(text1)
+            emb2 = model.encode(text2)
+
+            dot = sum(a * b for a, b in zip(emb1, emb2))
+            norm1 = sum(a * a for a in emb1) ** 0.5
+            norm2 = sum(b * b for b in emb2) ** 0.5
+
+            if norm1 == 0 or norm2 == 0:
+                return 0.0
+
+            return float((dot / (norm1 * norm2)) * 100)
+        except Exception:
+            pass
+
+    tokens1 = set(re.findall(r"[a-zA-Z]{2,}", text1.lower()))
+    tokens2 = set(re.findall(r"[a-zA-Z]{2,}", text2.lower()))
+
+    if not tokens1 or not tokens2:
+        return 0.0
+
+    return float((len(tokens1 & tokens2) / len(tokens1 | tokens2)) * 100)
 
 # ---------------- SUGGESTIONS ----------------
 def generate_suggestions(missing_skills, section_score):
